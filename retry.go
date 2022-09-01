@@ -12,21 +12,21 @@ import (
 var (
 	defaultCtx, defaultCancel = context.WithCancel(context.Background())
 	defaultDelayInterval      = time.Millisecond * 100
-	defaultRetriableError     = RetriableMesg("retriable")
+	defaultRetryErr           = CreateRetryErrMsg("try again")
 )
 
-// RetriableErr is an error type which can be retried
-type RetriableErr struct {
+// RetryErr is an error type which can be retried
+type RetryErr struct {
 	error
 }
 
-// Retriable makes an error be retriable
-func Retriable(err error) *RetriableErr {
-	return &RetriableErr{err}
+// CreateRetryErr makes an error be CreateRetryErr
+func CreateRetryErr(err error) *RetryErr {
+	return &RetryErr{err}
 }
 
-func RetriableMesg(mesg string) *RetriableErr {
-	return &RetriableErr{errors.New(mesg)}
+func CreateRetryErrMsg(msg string) *RetryErr {
+	return &RetryErr{errors.New(msg)}
 }
 
 // Retry ensures that the do function will be executed until some condition being satisfied
@@ -37,18 +37,15 @@ type Retry struct {
 	recovery bool
 }
 
-func (r *Retry) ensure(times int, do func() error) error {
-	var (
-		alway = true
-		err   error
-	)
+func (r *Retry) ensure(times int, do func() error) (err error) {
+	run := true
 	if times > 0 {
-		alway = false
+		run = false
 	}
 
 	for {
-		if !alway && times == 0 {
-			return err
+		if !run && times == 0 {
+			return
 		}
 		if r.isExited() {
 			return r.ctx.Err()
@@ -56,17 +53,17 @@ func (r *Retry) ensure(times int, do func() error) error {
 
 		err = r.handle(do)
 		if err == nil {
-			return nil
+			return
 		}
 
-		if !alway {
+		if !run {
 			times--
 		}
-		if _, ok := err.(*RetriableErr); ok {
+		if _, ok := err.(*RetryErr); ok {
 			r.sleep()
 			continue
 		}
-		return err
+		return
 	}
 }
 
@@ -94,14 +91,14 @@ func (r *Retry) isExited() bool {
 }
 
 func (r *Retry) sleep() {
-	var duratime = r.base
+	durationTime := r.base
 
 	if r.backoff != nil {
-		duratime = r.backoff.Duration()
+		durationTime = r.backoff.Duration()
 	}
 
 	select {
-	case <-time.After(duratime):
+	case <-time.After(durationTime):
 	case <-r.ctx.Done():
 	}
 }
